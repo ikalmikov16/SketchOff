@@ -1,6 +1,11 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { get, onValue, ref, update } from 'firebase/database';
-import { getDownloadURL, ref as storageRef, uploadBytesResumable } from 'firebase/storage';
+import { onValue, ref, runTransaction, update } from 'firebase/database';
+import {
+  getDownloadURL,
+  ref as storageRef,
+  uploadBytesResumable,
+  uploadString,
+} from 'firebase/storage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -24,10 +29,18 @@ import {
   CANVAS_CAPTURE,
   DRAWING_CONFIG,
   MIN_VALID_DRAWING_LENGTH,
+  MULTIPLAYER_CONFIG,
   TIMER_COLORS,
 } from '../utils/constants';
 import { error as hapticError, success, tapMedium, warning } from '../utils/haptics';
 import { useNetworkStatus } from '../utils/network';
+import {
+  clearPresence,
+  isPlayerConnected,
+  isValidPlayer,
+  registerPresence,
+  removeGhostPlayers,
+} from '../utils/presence';
 import { playClockTickCountdown, playSuccess, stopClockTick } from '../utils/sounds';
 
 /**
@@ -35,6 +48,12 @@ import { playClockTickCountdown, playSuccess, stopClockTick } from '../utils/sou
  * Works reliably on both iOS and Android by writing to temp file first
  */
 async function uploadBase64Image(base64Data, storageReference) {
+  // expo-file-system is unavailable on web, but the browser can decode base64 natively
+  if (Platform.OS === 'web') {
+    await uploadString(storageReference, base64Data, 'base64', { contentType: 'image/png' });
+    return getDownloadURL(storageReference);
+  }
+
   // Write base64 to temporary file
   const tempPath = `${FileSystem.cacheDirectory}temp_drawing_${Date.now()}.png`;
 
@@ -180,6 +199,79 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
     return () => clearInterval(captureInterval);
   }, [showIntro, hasSubmitted, isSubmitting, captureCanvas]);
 
+  // Track our presence so other clients stop waiting on us if we drop
+  useEffect(() => {
+    registerPresence(roomCode, playerId);
+  }, [roomCode, playerId]);
+
+  // Advance to rating once every *connected* player has submitted.
+  // Runs in a transaction so concurrent checks from multiple clients can't
+  // double-fire, and so a player disconnecting mid-round can't stall the game.
+  const checkAllSubmitted = useCallback(async () => {
+    try {
+      const roomRef = ref(database, `rooms/${roomCode}`);
+      await runTransaction(roomRef, (roomData) => {
+        // Local cache miss - return as-is so Firebase refetches and reruns
+        if (!roomData) return roomData;
+        if (roomData.status !== 'drawing') return undefined;
+
+        const round = roomData.currentRound || 1;
+        const roundDrawings = roomData.drawings?.[`round${round}`] || {};
+        if (Object.keys(roundDrawings).length === 0) return undefined;
+
+        // Only wait for players who are still connected (players without a
+        // connected flag - old clients - are treated as connected)
+        const pending = Object.values(roomData.players || {}).filter(
+          (p) => isValidPlayer(p) && !roundDrawings[p.id] && isPlayerConnected(p)
+        );
+        if (pending.length > 0) return undefined;
+
+        removeGhostPlayers(roomData);
+        roomData.status = 'rating';
+        roomData.lastActivity = Date.now();
+        return roomData;
+      });
+    } catch (error) {
+      console.error('Error checking submissions:', error);
+    }
+  }, [roomCode]);
+
+  // Last-resort fallback: if the drawing timer expired a while ago and the
+  // round still hasn't advanced (e.g. a player dropped without the presence
+  // flag updating), any client may force the round forward.
+  const forceAdvanceIfStale = useCallback(async () => {
+    try {
+      const roomRef = ref(database, `rooms/${roomCode}`);
+      await runTransaction(roomRef, (roomData) => {
+        if (!roomData) return roomData;
+        if (roomData.status !== 'drawing') return undefined;
+        if (!roomData.drawingEndTime) return undefined;
+        if (Date.now() < roomData.drawingEndTime + MULTIPLAYER_CONFIG.ROUND_ADVANCE_GRACE_MS) {
+          return undefined;
+        }
+
+        const round = roomData.currentRound || 1;
+        const roundDrawings = roomData.drawings?.[`round${round}`] || {};
+        if (Object.keys(roundDrawings).length === 0) return undefined;
+
+        removeGhostPlayers(roomData);
+        roomData.status = 'rating';
+        roomData.lastActivity = Date.now();
+        return roomData;
+      });
+    } catch (error) {
+      console.error('Error force-advancing round:', error);
+    }
+  }, [roomCode]);
+
+  // While waiting for others, periodically check the stale-round fallback
+  useEffect(() => {
+    if (!hasSubmitted) return;
+
+    const interval = setInterval(forceAdvanceIfStale, 5000);
+    return () => clearInterval(interval);
+  }, [hasSubmitted, forceAdvanceIfStale]);
+
   useEffect(() => {
     const roomRef = ref(database, `rooms/${roomCode}`);
 
@@ -187,6 +279,7 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
       roomRef,
       (snapshot) => {
         if (!snapshot.exists()) {
+          clearPresence();
           Alert.alert('Room Closed', 'The room has been closed.');
           navigation.replace('Welcome');
           return;
@@ -197,7 +290,7 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
         setCurrentRound(roomData.currentRound || 1);
         const roomTimeLimit = roomData.settings.timeLimit;
 
-        const playersList = Object.values(roomData.players || {});
+        const playersList = Object.values(roomData.players || {}).filter(isValidPlayer);
         setTotalPlayers(playersList.length);
         setAllPlayers(playersList);
 
@@ -207,6 +300,18 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
         const submittedIds = Object.keys(roundDrawings);
         const submitted = playersList.filter((p) => submittedIds.includes(p.id)).map((p) => p.name);
         setSubmittedPlayers(submitted);
+
+        // If we've submitted and everyone still connected has too (e.g. a
+        // pending player just went offline), try to advance the round.
+        // The transaction inside makes this idempotent across clients.
+        if (roomData.status === 'drawing' && roundDrawings[playerId]) {
+          const pendingActive = playersList.filter(
+            (p) => !roundDrawings[p.id] && isPlayerConnected(p)
+          );
+          if (pendingActive.length === 0) {
+            checkAllSubmitted();
+          }
+        }
 
         // Initialize timer with the room's time limit setting
         // We use the fixed timeLimit rather than calculating from drawingEndTime
@@ -246,7 +351,7 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
 
     // Use the unsubscribe function returned by onValue instead of off()
     return () => unsubscribe();
-  }, [roomCode, playerId, navigation, playerName]);
+  }, [roomCode, playerId, navigation, playerName, checkAllSubmitted]);
 
   // Only start the drawing timer after intro animation is complete
   // Uses simple decrement to avoid clock skew issues between devices
@@ -285,28 +390,6 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
 
     return () => subscription.remove();
   }, [introAnimationDone, hasSubmitted]);
-
-  // Check if all players have submitted their drawings
-  const checkAllSubmitted = useCallback(async () => {
-    try {
-      const roomRef = ref(database, `rooms/${roomCode}`);
-      const snapshot = await get(roomRef);
-
-      if (snapshot.exists()) {
-        const roomData = snapshot.val();
-        const playersCount = Object.keys(roomData.players || {}).length;
-        const round = roomData.currentRound || 1;
-        const roundDrawings = roomData.drawings?.[`round${round}`] || {};
-        const drawingsCount = Object.keys(roundDrawings).length;
-
-        if (playersCount === drawingsCount) {
-          await update(ref(database, `rooms/${roomCode}`), { status: 'rating' });
-        }
-      }
-    } catch (error) {
-      console.error('Error checking submissions:', error);
-    }
-  }, [roomCode]);
 
   // Handle time up - wrapped in useCallback to avoid stale closures
   const handleTimeUp = useCallback(async () => {
@@ -736,6 +819,7 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
           <ScrollView style={styles.playerStatusList} showsVerticalScrollIndicator={false}>
             {allPlayers.map((player) => {
               const hasPlayerSubmitted = submittedPlayers.includes(player.name);
+              const isOnline = isPlayerConnected(player);
               return (
                 <View
                   key={player.id}
@@ -748,7 +832,9 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
                     },
                   ]}
                 >
-                  <Text style={styles.playerStatusIcon}>{hasPlayerSubmitted ? '✅' : '⏳'}</Text>
+                  <Text style={styles.playerStatusIcon}>
+                    {hasPlayerSubmitted ? '✅' : isOnline ? '⏳' : '📵'}
+                  </Text>
                   <Text
                     style={[
                       styles.playerStatusName,
@@ -757,6 +843,7 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
                   >
                     {player.name}
                     {player.id === playerId && ' (you)'}
+                    {!hasPlayerSubmitted && !isOnline && ' · offline'}
                   </Text>
                 </View>
               );
@@ -862,9 +949,16 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
         ]}
       >
         {/* Topic on left, Timer on right */}
-        <Text style={[styles.topicText, { color: theme.text }]} numberOfLines={2}>
-          {topic}
-        </Text>
+        <View style={styles.topicContainer}>
+          <Text style={[styles.topicText, { color: theme.text }]} numberOfLines={2}>
+            {topic}
+          </Text>
+          {submittedPlayers.length > 0 && (
+            <Text style={[styles.submitProgressText, { color: theme.textSecondary }]}>
+              {submittedPlayers.length}/{totalPlayers} finished
+            </Text>
+          )}
+        </View>
 
         <Animated.View
           style={[
@@ -914,6 +1008,8 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
           onPress={handleClear}
           disabled={isSubmitting || showIntro}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Clear drawing"
         >
           <Text style={styles.clearButtonText}>↺</Text>
         </TouchableOpacity>
@@ -929,6 +1025,8 @@ export default function MultiplayerDrawingScreen({ route, navigation }) {
           onPress={confirmSubmitDrawing}
           disabled={!isConnected || isSubmitting || showIntro}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Submit drawing"
         >
           <Text style={styles.floatingButtonIcon}>✓</Text>
         </TouchableOpacity>
@@ -950,12 +1048,19 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     borderBottomWidth: 1,
   },
-  topicText: {
+  topicContainer: {
     flex: 1,
+    marginRight: 12,
+  },
+  topicText: {
     fontSize: 18,
     fontWeight: '700',
     lineHeight: 24,
-    marginRight: 12,
+  },
+  submitProgressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
   },
   timerContainer: {
     paddingHorizontal: 14,

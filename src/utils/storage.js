@@ -3,6 +3,25 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const STATS_KEY = '@game_stats';
 const HISTORY_KEY = '@game_history';
 const CONSENT_KEY = '@user_consent';
+const HOWTO_KEY = '@howto_seen';
+
+// First-launch onboarding
+export async function hasSeenHowToPlay() {
+  try {
+    const seen = await AsyncStorage.getItem(HOWTO_KEY);
+    return seen === 'true';
+  } catch (_error) {
+    return true; // Don't nag if storage is unavailable
+  }
+}
+
+export async function markHowToPlaySeen() {
+  try {
+    await AsyncStorage.setItem(HOWTO_KEY, 'true');
+  } catch (error) {
+    console.warn('Failed to save onboarding state:', error);
+  }
+}
 
 // Privacy consent management
 export async function hasUserConsent() {

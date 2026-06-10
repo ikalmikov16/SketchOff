@@ -3,6 +3,35 @@ import { database, getCurrentUserId } from '../config/firebase';
 import { CLEANUP_CONFIG } from './constants';
 
 /**
+ * Normalize drawings into one entry per player: { [playerId]: { url, round } }.
+ *
+ * Rooms store drawings keyed by round (`drawings/round1/{playerId}`), while the
+ * archive format is keyed by player. Accepts either shape; when a player has
+ * drawings in multiple rounds, the latest round wins.
+ */
+function flattenDrawingsByPlayer(drawings) {
+  const flat = {};
+
+  for (const [key, value] of Object.entries(drawings || {})) {
+    const roundMatch = key.match(/^round(\d+)$/);
+
+    if (roundMatch && value && typeof value === 'object') {
+      const round = parseInt(roundMatch[1], 10);
+      for (const [playerId, drawingData] of Object.entries(value)) {
+        if (drawingData?.url && (!flat[playerId] || round >= flat[playerId].round)) {
+          flat[playerId] = { url: drawingData.url, round };
+        }
+      }
+    } else if (value?.url) {
+      // Already player-keyed; default to round 1 if round is missing (old data)
+      flat[key] = { url: value.url, round: value.round ?? 1 };
+    }
+  }
+
+  return flat;
+}
+
+/**
  * Archive a completed game's essential data (preserves drawing URLs)
  * and delete the room data to save space.
  *
@@ -29,17 +58,7 @@ export async function archiveGameAndCleanup({ roomCode, players, drawings, numRo
         isHost: p.isHost || false,
       })),
       // Preserve drawing URLs so images remain accessible
-      // Filter out drawings without URLs and handle missing round values
-      drawings: Object.entries(drawings || {}).reduce((acc, [playerId, drawingData]) => {
-        if (drawingData?.url) {
-          acc[playerId] = {
-            url: drawingData.url,
-            // Default to 1 if round is missing (handles old/incomplete data)
-            round: drawingData.round ?? 1,
-          };
-        }
-        return acc;
-      }, {}),
+      drawings: flattenDrawingsByPlayer(drawings),
     };
 
     // Save to archives (indexed by timestamp for easy cleanup later if needed)

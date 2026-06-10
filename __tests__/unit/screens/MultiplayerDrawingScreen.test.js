@@ -14,7 +14,10 @@ import { CANVAS_CAPTURE } from '../../../src/utils/constants';
 jest.useFakeTimers();
 
 // Mock canvas ref - return value must be > 100 characters to pass MIN_VALID_DRAWING_LENGTH check
-const createMockCanvasRef = (shouldFail = false, returnValue = 'valid-base64-data-longer-than-100-chars-to-pass-validation-check-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx') => ({
+const createMockCanvasRef = (
+  shouldFail = false,
+  returnValue = 'valid-base64-data-longer-than-100-chars-to-pass-validation-check-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+) => ({
   current: {
     toBase64: jest.fn().mockImplementation(() => {
       if (shouldFail) {
@@ -93,7 +96,8 @@ describe('Canvas Capture Logic', () => {
 
     it('should fallback to backup when fresh capture fails', async () => {
       const mockCanvasRef = createMockCanvasRef(true); // Will fail
-      const backupData = 'backup-base64-data-that-is-longer-than-100-characters-for-validation-purposes-xxxxxxxxxxxxxxxxxxxxxxxx';
+      const backupData =
+        'backup-base64-data-that-is-longer-than-100-characters-for-validation-purposes-xxxxxxxxxxxxxxxxxxxxxxxx';
       const lastCanvasDataRef = { current: backupData };
 
       // Simulate the fresh capture + fallback logic
@@ -119,7 +123,8 @@ describe('Canvas Capture Logic', () => {
 
     it('should fallback to backup when fresh capture returns empty data', async () => {
       const mockCanvasRef = createMockCanvasRef(false, ''); // Returns empty string
-      const backupData = 'backup-base64-data-that-is-longer-than-100-characters-for-validation-purposes-xxxxxxxxxxxxxxxxxxxxxxxx';
+      const backupData =
+        'backup-base64-data-that-is-longer-than-100-characters-for-validation-purposes-xxxxxxxxxxxxxxxxxxxxxxxx';
       const lastCanvasDataRef = { current: backupData };
 
       let base64 = null;
@@ -221,7 +226,8 @@ describe('Canvas Capture Logic', () => {
     it('should use fallback in flow when fresh capture fails', async () => {
       const callOrder = [];
       const mockCanvasRef = createMockCanvasRef(true); // Will fail
-      const backupData = 'backup-base64-data-longer-than-100-characters-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+      const backupData =
+        'backup-base64-data-longer-than-100-characters-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
       const lastCanvasDataRef = { current: backupData };
 
       // Simulate full capture flow with failure
@@ -251,4 +257,3 @@ describe('Canvas Capture Logic', () => {
     });
   });
 });
-

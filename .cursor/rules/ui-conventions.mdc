@@ -1,0 +1,18 @@
+---
+description: UI, theming, and platform conventions for screens and components
+globs: src/screens/**/*.js,src/components/**/*.js
+alwaysApply: false
+---
+
+# UI Conventions
+
+- Functional components only, plain JavaScript (no TypeScript). One screen/component per file, default export.
+- `StyleSheet.create` at the bottom of the file holds static styles; theme-dependent colors are applied inline: `style={[styles.card, { backgroundColor: theme.cardBackground }]}`.
+- Get colors from `useTheme()` (`src/context/ThemeContext.js`). Never hardcode theme colors in components; the palette is dark-only (`background`, `cardBackground`, `text`, `textSecondary`, `border`, `primary`, `success`, `warning`, `danger`, `accent`).
+- Button presses trigger haptics from `src/utils/haptics.js` (`tapLight`/`tapMedium`/`tapHeavy`, `success`, `warning`, `error`, `selection`) and optionally sounds from `src/utils/sounds.js`. Haptics are no-ops on web.
+- Async actions: guard with an `isSubmitting`-style state, disable the button, show `<LoadingOverlay />`; show `<OfflineBanner visible={!isConnected} />` using `useNetworkStatus()` on any screen that writes to Firebase.
+- Platform differences:
+  - Web: no drawing canvas, no QR. `Alert.alert` buttons don't work — use `window.confirm`/`window.alert` behind `Platform.OS === 'web'`.
+  - Android: use `CustomSlider` instead of `@react-native-community/slider` (touch-target issues).
+- Use safe-area helpers (`SafeAreaView` / `useSafeAreaInsets`) on full-screen views; headers add `insets.top` padding when `headerShown: false`.
+- Play one-shot sounds/celebrations behind a `useRef` flag so re-renders don't replay them.

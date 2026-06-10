@@ -5,11 +5,13 @@ import { useTheme } from '../context/ThemeContext';
 
 export default function RoundResultsScreen({ navigation }) {
   const { theme } = useTheme();
-  const { players, currentRound, numRounds, nextRound, roundScores } = useGame();
+  const { players, currentRound, numRounds, nextRound, roundScores, setCurrentTopic } = useGame();
 
   const handleNextRound = () => {
     if (currentRound < numRounds) {
       nextRound();
+      // Clear the topic so TopicScreen generates a fresh one for the new round
+      setCurrentTopic('');
       navigation.navigate('Topic');
     } else {
       navigation.navigate('FinalResults');

@@ -6,39 +6,43 @@ Thank you for your interest in contributing to SketchOff! This document provides
 
 ### Prerequisites
 
-- Node.js 18 or higher
-- npm or yarn
-- Expo CLI (`npx expo`)
+- [Bun](https://bun.sh) (package manager and script runner — the lockfile is `bun.lock`)
+- Node.js 18 or higher (required by Expo tooling)
 - iOS Simulator (Mac only) or Android Emulator
 - Firebase project for backend services
 
 ### Getting Started
 
 1. Fork and clone the repository
-2. Install dependencies: `npm install`
+2. Install dependencies: `bun install`
 3. Create a `.env` file with your Firebase credentials
-4. Start the dev server: `npm start`
+4. Start the dev server: `bun start`
+
+> Use `bun` for all package management and scripts. Don't commit a `package-lock.json` or `yarn.lock`.
 
 ## 📝 Code Style
 
 ### Formatting
 
-We use **Prettier** for code formatting and **ESLint** for linting.
+We use **Prettier** for all code formatting and **ESLint** for linting. Run Prettier before committing — CI fails on unformatted code.
 
 ```bash
 # Format all files
-npm run format
+bun run format
 
 # Check formatting without modifying
-npm run format:check
+bun run format:check
 
 # Run linter
-npm run lint
+bun run lint
+
+# Run tests
+bun run test
 ```
 
 ### Conventions
 
-- **Components**: PascalCase (`DrawingCanvas.js`)
+- **Components**: PascalCase (`EnhancedDrawingCanvas.js`)
 - **Utilities**: camelCase (`sounds.js`)
 - **Screens**: PascalCase with `Screen` suffix (`WelcomeScreen.js`)
 - **Styles**: Define at bottom of component files using `StyleSheet.create()`
@@ -209,14 +213,8 @@ Before submitting changes, test:
 ## 📦 Building for Production
 
 ```bash
-# Build for iOS
-npx expo build:ios
-
-# Build for Android
-npx expo build:android
-
-# Or use EAS Build
-npx eas build --platform all
+# EAS Build
+bunx eas build --platform all
 ```
 
 ## 🐛 Reporting Issues

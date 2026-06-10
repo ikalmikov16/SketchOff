@@ -310,12 +310,8 @@ describe('roomCleanup utils', () => {
 
       const archiveData = set.mock.calls[0][1];
 
-      expect(archiveData.drawings.user1.url).toBe(
-        'https://example.com/drawing1.png'
-      );
-      expect(archiveData.drawings.user2.url).toBe(
-        'https://example.com/drawing2.png'
-      );
+      expect(archiveData.drawings.user1.url).toBe('https://example.com/drawing1.png');
+      expect(archiveData.drawings.user2.url).toBe('https://example.com/drawing2.png');
     });
 
     it('should filter out drawings without URLs', async () => {
@@ -337,6 +333,38 @@ describe('roomCleanup utils', () => {
       expect(archiveData.drawings.user1).toBeDefined();
       expect(archiveData.drawings.user2).toBeUndefined();
       expect(archiveData.drawings.user3).toBeUndefined();
+    });
+
+    it('should flatten round-keyed drawings from room data', async () => {
+      // Rooms store drawings as drawings/round{N}/{playerId}
+      const drawings = {
+        round1: {
+          user1: { url: 'https://example.com/r1-alice.png', submittedAt: 1 },
+          user2: { url: 'https://example.com/r1-bob.png', submittedAt: 2 },
+        },
+        round2: {
+          user1: { url: 'https://example.com/r2-alice.png', submittedAt: 3 },
+        },
+      };
+
+      await archiveGameAndCleanup({
+        roomCode: 'ROOM123',
+        players: [],
+        drawings,
+        numRounds: 2,
+      });
+
+      const archiveData = set.mock.calls[0][1];
+
+      // Latest round wins per player
+      expect(archiveData.drawings.user1).toEqual({
+        url: 'https://example.com/r2-alice.png',
+        round: 2,
+      });
+      expect(archiveData.drawings.user2).toEqual({
+        url: 'https://example.com/r1-bob.png',
+        round: 1,
+      });
     });
 
     it('should default round to 1 if missing', async () => {
@@ -486,4 +514,3 @@ describe('roomCleanup utils', () => {
     });
   });
 });
-

@@ -2,6 +2,8 @@ import { get, ref, set } from 'firebase/database';
 import React, { useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +13,7 @@ import {
 } from 'react-native';
 import { LoadingOverlay, OfflineBanner } from '../components/NetworkStatus';
 import WheelPicker from '../components/WheelPicker';
-import { auth, database } from '../config/firebase';
+import { auth, database, ensureSignedIn } from '../config/firebase';
 import { useTheme } from '../context/ThemeContext';
 import { error as hapticError, selection, success, tapMedium } from '../utils/haptics';
 import { useNetworkStatus } from '../utils/network';
@@ -53,18 +55,32 @@ export default function RoomCreateScreen({ navigation }) {
       return;
     }
 
-    // Ensure user is authenticated
-    if (!auth.currentUser) {
-      Alert.alert('Error', 'Not authenticated. Please restart the app.');
+    // Firebase security rules reject timeLimit > 300, so block it client-side too
+    if (timeLimit > 300) {
+      Alert.alert('Error', 'Time limit can be at most 5 minutes');
       return;
     }
 
     setIsCreating(true);
 
     try {
+      // Make sure we're authenticated - retries if app-start sign-in failed
+      // (e.g. the app was first launched while offline)
+      let user = auth.currentUser;
+      if (!user) {
+        try {
+          user = await ensureSignedIn();
+        } catch (authError) {
+          console.error('Auth retry failed:', authError);
+          Alert.alert('Connection Error', 'Could not connect to the server. Please try again.');
+          setIsCreating(false);
+          return;
+        }
+      }
+
       // Use the authenticated user's UID as the player ID
       // This is required for Firebase security rules to work properly
-      const playerId = auth.currentUser.uid;
+      const playerId = user.uid;
 
       let roomCode = generateRoomCode();
       let roomCreated = false;
@@ -101,6 +117,9 @@ export default function RoomCreateScreen({ navigation }) {
               name: trimmedName,
               totalScore: 0,
               roundScore: 0,
+              joinedAt: Date.now(),
+              connected: true,
+              lastSeen: Date.now(),
             },
           },
           createdAt: Date.now(),
@@ -132,7 +151,10 @@ export default function RoomCreateScreen({ navigation }) {
   };
 
   return (
-    <View style={[styles.wrapper, { backgroundColor: theme.background }]}>
+    <KeyboardAvoidingView
+      style={[styles.wrapper, { backgroundColor: theme.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <OfflineBanner visible={!isConnected} />
       <LoadingOverlay visible={isCreating} message="Creating room..." />
 
@@ -183,7 +205,7 @@ export default function RoomCreateScreen({ navigation }) {
 
           <Text style={[styles.label, { color: theme.textSecondary }]}>Time Limit</Text>
           <View style={styles.timeRow}>
-            <WheelPicker value={minutes} onChange={setMinutes} maxValue={10} label="min" />
+            <WheelPicker value={minutes} onChange={setMinutes} maxValue={5} label="min" />
             <Text style={[styles.timeSeparator, { color: theme.text }]}>:</Text>
             <WheelPicker value={seconds} onChange={setSeconds} maxValue={59} label="sec" />
           </View>
@@ -206,7 +228,7 @@ export default function RoomCreateScreen({ navigation }) {
           </Text>
         </TouchableOpacity>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

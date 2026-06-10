@@ -84,10 +84,7 @@ describe('storage utils', () => {
 
       await saveStats(stats);
 
-      expect(AsyncStorage.setItem).toHaveBeenCalledWith(
-        '@game_stats',
-        JSON.stringify(stats)
-      );
+      expect(AsyncStorage.setItem).toHaveBeenCalledWith('@game_stats', JSON.stringify(stats));
     });
   });
 
@@ -434,11 +431,7 @@ describe('storage utils', () => {
 
       await clearAllStats();
 
-      expect(AsyncStorage.multiRemove).toHaveBeenCalledWith([
-        '@game_stats',
-        '@game_history',
-      ]);
+      expect(AsyncStorage.multiRemove).toHaveBeenCalledWith(['@game_stats', '@game_history']);
     });
   });
 });
-

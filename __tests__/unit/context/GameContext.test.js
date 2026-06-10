@@ -50,11 +50,7 @@ describe('GameContext', () => {
       });
 
       expect(result.current.players).toHaveLength(3);
-      expect(result.current.players.map((p) => p.name)).toEqual([
-        'Alice',
-        'Bob',
-        'Charlie',
-      ]);
+      expect(result.current.players.map((p) => p.name)).toEqual(['Alice', 'Bob', 'Charlie']);
     });
 
     it('should initialize totalScore to 0 for each player', () => {
@@ -84,10 +80,7 @@ describe('GameContext', () => {
       });
 
       expect(result.current.players).toHaveLength(2);
-      expect(result.current.players.map((p) => p.name)).toEqual([
-        'Alice',
-        'Charlie',
-      ]);
+      expect(result.current.players.map((p) => p.name)).toEqual(['Alice', 'Charlie']);
     });
 
     it('should remove first player correctly', () => {
@@ -323,4 +316,3 @@ describe('GameContext', () => {
     });
   });
 });
-

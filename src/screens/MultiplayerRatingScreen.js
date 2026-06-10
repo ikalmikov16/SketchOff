@@ -1,4 +1,4 @@
-import { get, onValue, ref, update } from 'firebase/database';
+import { onValue, ref, runTransaction, update } from 'firebase/database';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -17,6 +17,13 @@ import { database } from '../config/firebase';
 import { useTheme } from '../context/ThemeContext';
 import { error as hapticError, success, tapMedium } from '../utils/haptics';
 import { useNetworkStatus } from '../utils/network';
+import {
+  clearPresence,
+  isPlayerConnected,
+  isValidPlayer,
+  registerPresence,
+  removeGhostPlayers,
+} from '../utils/presence';
 
 export default function MultiplayerRatingScreen({ route, navigation }) {
   const { roomCode, playerId, playerName } = route.params;
@@ -43,16 +50,77 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
 
+  // Track our presence so other clients stop waiting on us if we drop
+  useEffect(() => {
+    registerPresence(roomCode, playerId);
+  }, [roomCode, playerId]);
+
   // Get current player (self)
   const currentPlayer = players.find((p) => p.id === playerId);
 
-  // Get players to rate (exclude self)
-  const playersToRate = players.filter((p) => p.id !== playerId);
+  // Get players to rate: everyone else who actually submitted a drawing this
+  // round (a player who dropped before submitting has nothing to rate)
+  const playersToRate = players.filter((p) => p.id !== playerId && drawings[p.id]?.url);
 
   // All drawings to show: own drawing first, then others to rate
   const allDrawings = currentPlayer
     ? [{ ...currentPlayer, isOwnDrawing: true }, ...playersToRate]
     : playersToRate;
+
+  // Finalize the round once everyone who can rate has rated. Runs inside a
+  // transaction because every client performs this check - without it, two
+  // players submitting at the same time could both add round scores to
+  // totalScore. Players who disconnected, and players with nothing to rate,
+  // are not waited on.
+  const checkAllRatingsSubmitted = useCallback(async () => {
+    try {
+      const roomRef = ref(database, `rooms/${roomCode}`);
+      await runTransaction(roomRef, (roomData) => {
+        // Local cache miss - return as-is so Firebase refetches and reruns
+        if (!roomData) return roomData;
+
+        // Another client already finalized this round - abort
+        if (roomData.status !== 'rating') return undefined;
+
+        // Repair partial player nodes - they'd fail rule validation and
+        // block this transaction's write
+        removeGhostPlayers(roomData);
+
+        const playersMap = roomData.players || {};
+        const playerIds = Object.keys(playersMap);
+        const allRatings = roomData.ratings || {};
+        const round = roomData.currentRound || 1;
+        const roundDrawings = roomData.drawings?.[`round${round}`] || {};
+
+        // A player still owes ratings only if they're connected and there is
+        // at least one other player's drawing for them to rate
+        const pendingRaters = playerIds.filter((pId) => {
+          if (allRatings[pId]) return false;
+          if (!isPlayerConnected(playersMap[pId])) return false;
+          return Object.keys(roundDrawings).some((id) => id !== pId);
+        });
+        if (pendingRaters.length > 0) return undefined;
+
+        playerIds.forEach((pId) => {
+          let roundScore = 0;
+          Object.values(allRatings).forEach((raterRatings) => {
+            const score = raterRatings?.[pId];
+            if (typeof score === 'number') {
+              roundScore += score;
+            }
+          });
+          roomData.players[pId].roundScore = roundScore;
+          roomData.players[pId].totalScore = (roomData.players[pId].totalScore || 0) + roundScore;
+        });
+
+        roomData.status = 'results';
+        roomData.lastActivity = Date.now();
+        return roomData;
+      });
+    } catch (error) {
+      console.error('Error finalizing ratings:', error);
+    }
+  }, [roomCode]);
 
   useEffect(() => {
     const roomRef = ref(database, `rooms/${roomCode}`);
@@ -61,6 +129,7 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
       roomRef,
       (snapshot) => {
         if (!snapshot.exists()) {
+          clearPresence();
           Alert.alert('Room Closed', 'The room has been closed.');
           navigation.replace('Welcome');
           return;
@@ -68,8 +137,9 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
 
         const roomData = snapshot.val();
 
+        let playersList = [];
         if (roomData.players) {
-          const playersList = Object.values(roomData.players);
+          playersList = Object.values(roomData.players).filter(isValidPlayer);
           setPlayers(playersList);
           setTotalPlayers(playersList.length);
         }
@@ -78,15 +148,38 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
         const round = roomData.currentRound || 1;
 
         // Get drawings for current round
-        if (roomData.drawings?.[`round${round}`]) {
-          const roundDrawings = roomData.drawings[`round${round}`];
+        const roundDrawings = roomData.drawings?.[`round${round}`] || {};
+        if (Object.keys(roundDrawings).length > 0) {
           setDrawings(roundDrawings);
         }
 
         // Track who has submitted ratings
-        const submittedIds = Object.keys(roomData.ratings || {});
+        const allRatings = roomData.ratings || {};
+        const submittedIds = Object.keys(allRatings);
         setSubmittedPlayerIds(submittedIds);
         setSubmittedCount(submittedIds.length);
+
+        if (roomData.status === 'rating') {
+          // If nobody else submitted a drawing this round, we have nothing to
+          // rate - go straight to the waiting state
+          const othersWithDrawings = playersList.filter(
+            (p) => p.id !== playerId && roundDrawings[p.id]
+          );
+          if (othersWithDrawings.length === 0) {
+            setHasSubmitted(true);
+          }
+
+          // Re-check completion whenever the room changes (covers a pending
+          // rater going offline). The transaction makes this idempotent.
+          const pendingRaters = playersList.filter((p) => {
+            if (allRatings[p.id]) return false;
+            if (!isPlayerConnected(p)) return false;
+            return Object.keys(roundDrawings).some((id) => id !== p.id);
+          });
+          if (pendingRaters.length === 0) {
+            checkAllRatingsSubmitted();
+          }
+        }
 
         // Check if moved to results
         if (roomData.status === 'results') {
@@ -104,7 +197,7 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
     );
 
     return () => unsubscribe();
-  }, [roomCode, playerId, navigation, playerName]);
+  }, [roomCode, playerId, navigation, playerName, checkAllRatingsSubmitted]);
 
   const handleRating = (targetPlayerId, score) => {
     if (targetPlayerId === playerId) return;
@@ -149,49 +242,6 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
       hapticError();
       Alert.alert('Error', 'Failed to submit ratings. Please check your connection and try again.');
     }
-  };
-
-  const checkAllRatingsSubmitted = async () => {
-    try {
-      const roomRef = ref(database, `rooms/${roomCode}`);
-      const snapshot = await get(roomRef);
-
-      if (snapshot.exists()) {
-        const roomData = snapshot.val();
-        const playersCount = Object.keys(roomData.players || {}).length;
-        const ratingsCount = Object.keys(roomData.ratings || {}).length;
-
-        if (playersCount === ratingsCount) {
-          await calculateScores(roomData);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking ratings:', error);
-    }
-  };
-
-  const calculateScores = async (roomData) => {
-    const scores = {};
-    const allRatings = roomData.ratings || {};
-
-    Object.keys(roomData.players).forEach((pId) => {
-      scores[pId] = 0;
-      Object.keys(allRatings).forEach((raterId) => {
-        if (allRatings[raterId][pId]) {
-          scores[pId] += allRatings[raterId][pId];
-        }
-      });
-    });
-
-    const updates = {};
-    Object.keys(scores).forEach((pId) => {
-      updates[`players/${pId}/roundScore`] = scores[pId];
-      updates[`players/${pId}/totalScore`] = (roomData.players[pId].totalScore || 0) + scores[pId];
-    });
-    updates.status = 'results';
-    updates.lastActivity = Date.now();
-
-    await update(ref(database, `rooms/${roomCode}`), updates);
   };
 
   const onViewableItemsChanged = useCallback(({ viewableItems }) => {
@@ -239,6 +289,7 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
             <View style={styles.playerStatusContainer}>
               {players.map((player) => {
                 const hasPlayerSubmitted = submittedPlayerIds.includes(player.id);
+                const isOnline = isPlayerConnected(player);
                 return (
                   <View
                     key={player.id}
@@ -251,7 +302,9 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
                       },
                     ]}
                   >
-                    <Text style={styles.playerStatusIcon}>{hasPlayerSubmitted ? '✅' : '⏳'}</Text>
+                    <Text style={styles.playerStatusIcon}>
+                      {hasPlayerSubmitted ? '✅' : isOnline ? '⏳' : '📵'}
+                    </Text>
                     <Text
                       style={[
                         styles.playerStatusName,
@@ -260,6 +313,7 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
                     >
                       {player.name}
                       {player.id === playerId && ' (you)'}
+                      {!hasPlayerSubmitted && !isOnline && ' · offline'}
                     </Text>
                   </View>
                 );
@@ -301,6 +355,11 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
             );
           })}
         </View>
+        <Text style={[styles.progressLabel, { color: theme.textSecondary }]}>
+          {allRated
+            ? 'All drawings rated!'
+            : `Rated ${Object.keys(ratings).length} of ${playersToRate.length} — swipe to see more`}
+        </Text>
       </View>
 
       {/* Horizontal swipe list */}
@@ -323,8 +382,8 @@ export default function MultiplayerRatingScreen({ route, navigation }) {
         scrollEnabled={!isSliderActive}
       />
 
-      {/* Submit button - only show when all rated */}
-      {allRated && (
+      {/* Submit button - only show when there is something rated */}
+      {allRated && playersToRate.length > 0 && (
         <View style={[styles.submitContainer, { paddingBottom: insets.bottom + 16 }]}>
           <TouchableOpacity
             style={[
@@ -363,6 +422,11 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
+  },
+  progressLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 8,
   },
   flatList: {
     flex: 1,

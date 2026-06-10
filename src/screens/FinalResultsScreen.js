@@ -5,11 +5,13 @@ import { useTheme } from '../context/ThemeContext';
 import { tapMedium } from '../utils/haptics';
 import { shareResultsAsText } from '../utils/sharing';
 import { playCelebration } from '../utils/sounds';
+import { recordGameComplete } from '../utils/storage';
 
 export default function FinalResultsScreen({ navigation }) {
   const { players, numRounds, resetGame } = useGame();
   const { theme } = useTheme();
   const celebrationPlayed = useRef(false);
+  const statsRecorded = useRef(false);
 
   // Play celebration sound once when screen loads
   useEffect(() => {
@@ -18,6 +20,27 @@ export default function FinalResultsScreen({ navigation }) {
       playCelebration();
     }
   }, []);
+
+  // Record the game in local stats once (attributed to the winning player,
+  // since single-device games are pass-and-play on a shared phone)
+  useEffect(() => {
+    if (players && players.length > 0 && numRounds > 0 && !statsRecorded.current) {
+      statsRecorded.current = true;
+
+      const sorted = [...players].sort((a, b) => b.totalScore - a.totalScore);
+      const winner = sorted[0];
+      if (winner) {
+        recordGameComplete({
+          playerName: winner.name,
+          position: 1,
+          totalPlayers: players.length,
+          totalScore: winner.totalScore || 0,
+          rounds: numRounds,
+          isMultiplayer: false,
+        });
+      }
+    }
+  }, [players, numRounds]);
 
   const handlePlayAgain = () => {
     // Navigate first, then reset to avoid rendering errors

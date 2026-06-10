@@ -36,3 +36,11 @@ export const DRAWING_CONFIG = {
   PEN_STROKE_WIDTH: 4,
   ERASER_STROKE_WIDTH: 24,
 };
+
+// Multiplayer configuration
+export const MULTIPLAYER_CONFIG = {
+  MAX_PLAYERS: 8,
+  // After the drawing timer expires, wait this long for stragglers before
+  // any client may force-advance the round (covers disconnected players)
+  ROUND_ADVANCE_GRACE_MS: 15000,
+};

@@ -4,7 +4,7 @@
       ".read": "auth != null",
       "$roomId": {
         ".read": "auth != null",
-        ".write": "auth != null && (newData.child('hostId').val() == auth.uid || data.child('hostId').val() == auth.uid || data.child('players').child(auth.uid).exists())",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostId').val() == auth.uid) || data.child('hostId').val() == auth.uid || data.child('players').child(auth.uid).exists())",
         ".validate": "newData.hasChildren(['code', 'hostId', 'status', 'settings', 'players'])",
 
         "code": {
@@ -39,6 +39,15 @@
               ".validate": "newData.isNumber()"
             },
             "roundScore": {
+              ".validate": "newData.isNumber()"
+            },
+            "connected": {
+              ".validate": "newData.isBoolean()"
+            },
+            "lastSeen": {
+              ".validate": "newData.isNumber()"
+            },
+            "joinedAt": {
               ".validate": "newData.isNumber()"
             }
           }
@@ -137,11 +146,6 @@
           }
         }
       }
-    },
-
-    "temp": {
-      ".read": false,
-      ".write": "auth != null"
     },
 
     ".read": false,

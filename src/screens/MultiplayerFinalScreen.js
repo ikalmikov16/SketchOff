@@ -5,6 +5,7 @@ import DrawingGallery from '../components/DrawingGallery';
 import { database } from '../config/firebase';
 import { useTheme } from '../context/ThemeContext';
 import { error as hapticError, success, tapMedium } from '../utils/haptics';
+import { clearPresence, isValidPlayer } from '../utils/presence';
 import { archiveGameAndCleanup } from '../utils/roomCleanup';
 import { generateRoomCode } from '../utils/roomCode';
 import { shareResultsAsText } from '../utils/sharing';
@@ -33,6 +34,13 @@ export default function MultiplayerFinalScreen({ route, navigation }) {
       celebrationPlayed.current = true;
       playCelebration();
     }
+  }, []);
+
+  // The game is over - stop presence tracking. This also cancels the pending
+  // onDisconnect handler, which would otherwise write into the room after the
+  // host deletes it (re-creating a ghost room).
+  useEffect(() => {
+    clearPresence();
   }, []);
 
   // Record game stats once when players are loaded
@@ -71,7 +79,7 @@ export default function MultiplayerFinalScreen({ route, navigation }) {
       setSettings(roomData.settings);
 
       if (roomData.players) {
-        const playersList = Object.values(roomData.players);
+        const playersList = Object.values(roomData.players).filter(isValidPlayer);
         setPlayers(playersList);
 
         // Check if current user is host
@@ -170,6 +178,9 @@ export default function MultiplayerFinalScreen({ route, navigation }) {
               name: playerName,
               totalScore: 0,
               roundScore: 0,
+              joinedAt: Date.now(),
+              connected: true,
+              lastSeen: Date.now(),
             },
           },
           createdAt: Date.now(),
@@ -226,6 +237,9 @@ export default function MultiplayerFinalScreen({ route, navigation }) {
         name: playerName,
         totalScore: 0,
         roundScore: 0,
+        joinedAt: Date.now(),
+        connected: true,
+        lastSeen: Date.now(),
       });
 
       success();

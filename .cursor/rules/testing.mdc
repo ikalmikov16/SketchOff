@@ -1,0 +1,24 @@
+---
+description: Testing conventions for Jest tests
+globs: __tests__/**/*.js,jest.config.js,jest.setup.js
+alwaysApply: false
+---
+
+# Testing Conventions
+
+- Jest with `jest-expo` preset; tests live in `__tests__/` mirroring `src/` (`__tests__/unit/utils/`, `__tests__/components/`, ...), named `*.test.js`. Run with `bun run test` (bun is the package manager/script runner for this repo).
+- `jest.setup.js` already mocks: Platform (iOS), expo-haptics, expo-audio, expo-file-system/legacy, expo-media-library, expo-sharing, react-native-reanimated, react-native-gesture-handler, react-native-signature-canvas, and `src/config/firebase` (via `__tests__/__mocks__/firebase.js`). Don't re-mock these per file.
+- To test code that calls `firebase/database` functions directly, mock the module at the top of the test file BEFORE importing the unit under test:
+
+```js
+jest.mock('firebase/database', () => ({
+  get: jest.fn(),
+  ref: jest.fn((db, path) => ({ path })),
+  remove: jest.fn(() => Promise.resolve()),
+  set: jest.fn(() => Promise.resolve()),
+}));
+```
+
+- Mock RTDB snapshots as `{ exists: () => true, val: () => ({ ... }) }`.
+- Component tests use `@testing-library/react-native` (`render`, `fireEvent`, built-in matchers). Wrap components that use theme in `ThemeProvider`.
+- E2E flows are Maestro YAML in `.maestro/flows/` — keep `testID`s stable if you rename UI elements.

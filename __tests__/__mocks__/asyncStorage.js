@@ -57,9 +57,7 @@ const AsyncStorageMock = {
   }),
 
   multiGet: jest.fn((keys) => {
-    return Promise.resolve(
-      keys.map((key) => [key, mockStorageInstance.data[key] || null])
-    );
+    return Promise.resolve(keys.map((key) => [key, mockStorageInstance.data[key] || null]));
   }),
 
   multiSet: jest.fn((keyValuePairs) => {

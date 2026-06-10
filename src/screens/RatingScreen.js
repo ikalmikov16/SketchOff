@@ -78,7 +78,7 @@ export default function RatingScreen({ navigation }) {
         <View style={styles.pageHeader}>
           <Text style={[styles.title, { color: theme.text }]}>Rate the Drawings</Text>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            Give each drawing a score from 1-10
+            Give each drawing a score from 0-10
           </Text>
         </View>
 

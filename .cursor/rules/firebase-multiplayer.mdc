@@ -1,0 +1,32 @@
+---
+description: Firebase Realtime Database patterns and security-rule constraints for multiplayer code
+globs: src/screens/Multiplayer*.js,src/screens/Room*.js,src/screens/LobbyScreen.js,src/utils/roomCleanup.js,src/utils/network.js,src/services/TopicService.js,src/config/**
+alwaysApply: false
+---
+
+# Firebase / Multiplayer Rules
+
+## Security rules are the contract
+
+Deployed rules live in `src/config/firebase.rules.json` and `src/config/storage.rules` (manually copied to the Firebase console). Client writes MUST stay within these bounds or they fail with PERMISSION_DENIED:
+
+- `settings.numRounds`: 1–10, `settings.timeLimit`: 30–300 seconds
+- `players/{uid}.name`: 1–20 chars; `players/{uid}.id` must equal the path key
+- `ratings/{rater}/{rated}`: number 0–10, rater ≠ rated
+- Room `code`: exactly 6 chars; storage uploads to `drawings/{roomCode}/{uid}_round{N}.png` must have a filename starting with the uploader's uid
+- A non-member cannot write the room root — joining writes only to `rooms/{code}/players/{uid}`
+- Room creation requires `!data.exists()` — a room root can only be `set()` when it doesn't exist yet. Never weaken this clause (it blocks room hijacking).
+
+If you change a validation bound, change BOTH the client check and the rules file, and tell the user the rules must be redeployed.
+
+## Patterns to follow
+
+- `playerId` is always `auth.currentUser.uid`. Never invent ids.
+- Screens subscribe with `onValue(roomRef, cb, errCb)` and return the unsubscribe function from the effect. Navigation between phases reacts to `roomData.status` changes and uses `navigation.replace(...)`.
+- Writes that advance the game must also set `lastActivity: Date.now()` (stale-room cleanup depends on it).
+- Clearing a subtree in an `update()` is done with an empty object (e.g. `ratings: {}` removes all ratings).
+- "Everyone finished?" checks run on every client. Any finalizing write (score computation, status flip) must be guarded with `runTransaction` or be fully idempotent — two clients WILL race.
+- Drawings are stored per round: `drawings/round{N}/{uid}`. Archives flatten to one entry per player.
+- Handle `!snapshot.exists()` in every room listener (room can be deleted by the host or cleanup at any time).
+- Presence: every multiplayer screen calls `registerPresence(roomCode, playerId)` (`src/utils/presence.js`). Check player liveness only via `isPlayerConnected()` — a missing `connected` flag means connected (old clients). Call `clearPresence()` before removing your own player node or when the game ends, otherwise the armed `onDisconnect` re-creates a ghost node.
+- Phase-advance checks must only wait for connected players; if the host can be required for an action, trigger `migrateHostIfNeeded()` when the host is offline.

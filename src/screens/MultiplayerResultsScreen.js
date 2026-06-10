@@ -19,6 +19,13 @@ import { useTheme } from '../context/ThemeContext';
 import { getRandomTopic } from '../services/TopicService';
 import { tapLight } from '../utils/haptics';
 import { useNetworkStatus } from '../utils/network';
+import {
+  clearPresence,
+  isPlayerConnected,
+  isValidPlayer,
+  migrateHostIfNeeded,
+  registerPresence,
+} from '../utils/presence';
 import { playRoundComplete } from '../utils/sounds';
 
 // Enable LayoutAnimation on Android
@@ -51,6 +58,11 @@ export default function MultiplayerResultsScreen({ route, navigation }) {
     }
   }, []);
 
+  // Track our presence so other clients stop waiting on us if we drop
+  useEffect(() => {
+    registerPresence(roomCode, playerId);
+  }, [roomCode, playerId]);
+
   useEffect(() => {
     const roomRef = ref(database, `rooms/${roomCode}`);
 
@@ -58,6 +70,7 @@ export default function MultiplayerResultsScreen({ route, navigation }) {
       roomRef,
       (snapshot) => {
         if (!snapshot.exists()) {
+          clearPresence();
           Alert.alert('Room Closed', 'The room has been closed.');
           navigation.replace('Welcome');
           return;
@@ -70,11 +83,20 @@ export default function MultiplayerResultsScreen({ route, navigation }) {
         setPreviousTopic(roomData.currentTopic || '');
 
         if (roomData.players) {
-          const playersList = Object.values(roomData.players);
+          const playersList = Object.values(roomData.players).filter(isValidPlayer);
           setPlayers(playersList);
 
           // Derive isHost from hostId
           setIsHost(roomData.hostId === playerId);
+
+          // Only the host can advance to the next round - if they went
+          // offline, promote a new host so the game doesn't soft-lock here.
+          // Any client may trigger this; the transaction inside guarantees a
+          // single promotion.
+          const host = roomData.players[roomData.hostId];
+          if (!host || !isPlayerConnected(host)) {
+            migrateHostIfNeeded(roomCode);
+          }
         }
 
         // Store drawings for current round and ratings for display
@@ -206,6 +228,11 @@ export default function MultiplayerResultsScreen({ route, navigation }) {
       <ScrollView style={styles.container}>
         <View style={styles.content}>
           <Text style={[styles.title, { color: theme.text }]}>🎉 Round {currentRound} Results</Text>
+          {previousTopic !== '' && (
+            <Text style={[styles.topicSubtitle, { color: theme.textSecondary }]}>
+              Topic: “{previousTopic}”
+            </Text>
+          )}
 
           <View style={styles.podiumContainer}>
             {sortedPlayers.map((player, position) => {
@@ -273,6 +300,8 @@ export default function MultiplayerResultsScreen({ route, navigation }) {
                         style={styles.expandArrow}
                         onPress={() => toggleExpand(player.id)}
                         activeOpacity={0.7}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Show rating breakdown for ${player.name}`}
                       >
                         <Text style={[styles.expandArrowText, { color: theme.textSecondary }]}>
                           {isExpanded ? '▲' : '▼'}
@@ -352,6 +381,8 @@ export default function MultiplayerResultsScreen({ route, navigation }) {
             <TouchableOpacity
               style={styles.closeModalButton}
               onPress={() => setSelectedImage(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Close image"
             >
               <Text style={styles.closeModalText}>✕</Text>
             </TouchableOpacity>
@@ -377,7 +408,13 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 30,
+    marginBottom: 8,
+  },
+  topicSubtitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 22,
   },
   podiumContainer: {
     gap: 15,

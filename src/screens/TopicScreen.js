@@ -81,6 +81,9 @@ export default function TopicScreen({ navigation }) {
     tapHeavy(); // Strong haptic feedback for starting
     // Store the end time when timer starts
     timerEndTimeRef.current = Date.now() + timeLimit * 1000;
+    // Reset the countdown - timeRemaining may still be 0 from a previous round,
+    // which would otherwise trigger handleTimerEnd immediately
+    setTimeRemaining(timeLimit);
     setIsTimerRunning(true);
   };
 

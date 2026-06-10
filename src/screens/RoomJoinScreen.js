@@ -2,6 +2,8 @@ import { get, ref, set } from 'firebase/database';
 import React, { useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,10 +12,28 @@ import {
   View,
 } from 'react-native';
 import { LoadingOverlay, OfflineBanner } from '../components/NetworkStatus';
-import { auth, database } from '../config/firebase';
+import { auth, database, ensureSignedIn } from '../config/firebase';
 import { useTheme } from '../context/ThemeContext';
+import { MULTIPLAYER_CONFIG } from '../utils/constants';
 import { error as hapticError, success, tapMedium } from '../utils/haptics';
 import { useNetworkStatus } from '../utils/network';
+import { isValidRoomCode, normalizeRoomCode } from '../utils/roomCode';
+
+// Map a room status to the screen a returning player should land on
+function screenForStatus(status) {
+  switch (status) {
+    case 'drawing':
+      return 'MultiplayerDrawing';
+    case 'rating':
+      return 'MultiplayerRating';
+    case 'results':
+      return 'MultiplayerResults';
+    case 'finished':
+      return 'MultiplayerFinal';
+    default:
+      return 'Lobby';
+  }
+}
 
 export default function RoomJoinScreen({ navigation, route }) {
   const { theme } = useTheme();
@@ -47,17 +67,34 @@ export default function RoomJoinScreen({ navigation, route }) {
       return;
     }
 
-    // Ensure user is authenticated
-    if (!auth.currentUser) {
-      Alert.alert('Error', 'Not authenticated. Please restart the app.');
+    const code = normalizeRoomCode(roomCode);
+
+    if (!isValidRoomCode(code)) {
+      Alert.alert('Invalid Code', 'Room codes are 6 letters/numbers (O and 0 are never used).');
       return;
     }
-
-    const code = roomCode.trim().toUpperCase();
 
     setIsJoining(true);
 
     try {
+      // Make sure we're authenticated - retries if app-start sign-in failed
+      // (e.g. the app was first launched while offline)
+      let user = auth.currentUser;
+      if (!user) {
+        try {
+          user = await ensureSignedIn();
+        } catch (authError) {
+          console.error('Auth retry failed:', authError);
+          Alert.alert('Connection Error', 'Could not connect to the server. Please try again.');
+          setIsJoining(false);
+          return;
+        }
+      }
+
+      // Use the authenticated user's UID as the player ID
+      // This is required for Firebase security rules to work properly
+      const playerId = user.uid;
+
       const roomRef = ref(database, `rooms/${code}`);
       const snapshot = await get(roomRef);
 
@@ -69,6 +106,18 @@ export default function RoomJoinScreen({ navigation, route }) {
 
       const roomData = snapshot.val();
 
+      // Rejoin: if this user is already a member, route them back into the
+      // game wherever it currently is (works even after an app crash/restart)
+      if (roomData.players && roomData.players[playerId]) {
+        success();
+        navigation.replace(screenForStatus(roomData.status), {
+          roomCode: code,
+          playerId,
+          playerName: roomData.players[playerId].name,
+        });
+        return;
+      }
+
       if (roomData.status !== 'lobby') {
         Alert.alert(
           'Game Started',
@@ -78,19 +127,13 @@ export default function RoomJoinScreen({ navigation, route }) {
         return;
       }
 
-      // Use the authenticated user's UID as the player ID
-      // This is required for Firebase security rules to work properly
-      const playerId = auth.currentUser.uid;
-
-      // Check if this user is already in the room
-      if (roomData.players && roomData.players[playerId]) {
-        Alert.alert('Already Joined', 'You are already in this room.');
+      const playerCount = Object.keys(roomData.players || {}).length;
+      if (playerCount >= MULTIPLAYER_CONFIG.MAX_PLAYERS) {
+        Alert.alert(
+          'Room Full',
+          `This room already has ${MULTIPLAYER_CONFIG.MAX_PLAYERS} players.`
+        );
         setIsJoining(false);
-        navigation.replace('Lobby', {
-          roomCode: code,
-          playerId,
-          playerName: roomData.players[playerId].name,
-        });
         return;
       }
 
@@ -101,6 +144,9 @@ export default function RoomJoinScreen({ navigation, route }) {
         name: trimmedName,
         totalScore: 0,
         roundScore: 0,
+        joinedAt: Date.now(),
+        connected: true,
+        lastSeen: Date.now(),
       });
 
       success(); // Haptic feedback on successful join
@@ -117,8 +163,15 @@ export default function RoomJoinScreen({ navigation, route }) {
     }
   };
 
+  // Live validation feedback once a full code is entered
+  const codeComplete = roomCode.length === 6;
+  const codeValid = isValidRoomCode(normalizeRoomCode(roomCode));
+
   return (
-    <View style={[styles.wrapper, { backgroundColor: theme.background }]}>
+    <KeyboardAvoidingView
+      style={[styles.wrapper, { backgroundColor: theme.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <OfflineBanner visible={!isConnected} />
       <LoadingOverlay visible={isJoining} message="Joining room..." />
 
@@ -148,7 +201,15 @@ export default function RoomJoinScreen({ navigation, route }) {
           <TextInput
             style={[
               styles.codeInput,
-              { backgroundColor: theme.background, color: theme.text, borderColor: theme.border },
+              {
+                backgroundColor: theme.background,
+                color: theme.text,
+                borderColor: codeComplete
+                  ? codeValid
+                    ? theme.success
+                    : theme.danger
+                  : theme.border,
+              },
             ]}
             placeholder="XXXXXX"
             placeholderTextColor={theme.textSecondary}
@@ -156,7 +217,13 @@ export default function RoomJoinScreen({ navigation, route }) {
             onChangeText={(text) => setRoomCode(text.toUpperCase())}
             autoCapitalize="characters"
             maxLength={6}
+            accessibilityLabel="Room code"
           />
+          {codeComplete && !codeValid && (
+            <Text style={[styles.codeHint, { color: theme.danger }]}>
+              Codes never contain the letter O or the digit 0
+            </Text>
+          )}
         </View>
 
         <TouchableOpacity
@@ -176,7 +243,7 @@ export default function RoomJoinScreen({ navigation, route }) {
           </Text>
         </TouchableOpacity>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -226,6 +293,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 8,
     borderWidth: 2,
+  },
+  codeHint: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 8,
+    textAlign: 'center',
   },
   joinButton: {
     padding: 20,

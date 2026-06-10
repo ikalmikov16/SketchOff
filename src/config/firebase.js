@@ -74,6 +74,17 @@ export const signInAnonymouslyIfNeeded = async () => {
   });
 };
 
+// Ensure the user is signed in, retrying anonymous auth if the initial
+// app-start sign-in failed (e.g. first launch while offline).
+// Returns the signed-in user or throws.
+export const ensureSignedIn = async () => {
+  if (auth.currentUser) {
+    return auth.currentUser;
+  }
+  const result = await signInAnonymously(auth);
+  return result.user;
+};
+
 // Get current user ID (useful for rules)
 export const getCurrentUserId = () => {
   return auth.currentUser?.uid || null;

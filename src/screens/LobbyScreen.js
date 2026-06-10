@@ -26,6 +26,13 @@ import {
   warning,
 } from '../utils/haptics';
 import { useNetworkStatus } from '../utils/network';
+import {
+  clearPresence,
+  isPlayerConnected,
+  isValidPlayer,
+  migrateHostIfNeeded,
+  registerPresence,
+} from '../utils/presence';
 import { shareRoomCode } from '../utils/sharing';
 
 export default function LobbyScreen({ route, navigation }) {
@@ -44,6 +51,11 @@ export default function LobbyScreen({ route, navigation }) {
   const [editTimeLimit, setEditTimeLimit] = useState(60);
   const [currentPlayerName, setCurrentPlayerName] = useState(playerName);
 
+  // Track our presence in this room (marks us offline if the app dies)
+  useEffect(() => {
+    registerPresence(roomCode, playerId);
+  }, [roomCode, playerId]);
+
   useEffect(() => {
     const roomRef = ref(database, `rooms/${roomCode}`);
 
@@ -51,6 +63,7 @@ export default function LobbyScreen({ route, navigation }) {
       roomRef,
       (snapshot) => {
         if (!snapshot.exists()) {
+          clearPresence();
           Alert.alert('Room Closed', 'The room has been closed.');
           navigation.replace('Welcome');
           return;
@@ -72,10 +85,13 @@ export default function LobbyScreen({ route, navigation }) {
 
         // Update players list
         if (roomData.players) {
-          const playersList = Object.values(roomData.players).map((p) => ({
-            ...p,
-            isHost: p.id === roomData.hostId, // Derive isHost from hostId
-          }));
+          const playersList = Object.values(roomData.players)
+            .filter(isValidPlayer)
+            .map((p) => ({
+              ...p,
+              isHost: p.id === roomData.hostId, // Derive isHost from hostId
+              isOnline: isPlayerConnected(p),
+            }));
           setPlayers(playersList);
 
           // Check if current user is host
@@ -86,9 +102,18 @@ export default function LobbyScreen({ route, navigation }) {
             setCurrentPlayerName(currentPlayer.name);
           } else {
             // Player was removed from the room
+            clearPresence();
             Alert.alert('Removed', 'You have been removed from the room.');
             navigation.replace('Welcome');
             return;
+          }
+
+          // If the host went offline (app killed, network lost), promote a
+          // new host so the lobby isn't stuck. Any client may trigger this -
+          // the transaction inside guarantees a single promotion.
+          const host = roomData.players[roomData.hostId];
+          if (!host || !isPlayerConnected(host)) {
+            migrateHostIfNeeded(roomCode);
           }
         }
 
@@ -166,6 +191,10 @@ export default function LobbyScreen({ route, navigation }) {
 
     setIsLeaving(true);
     try {
+      // Cancel the onDisconnect handler first - otherwise it would re-create
+      // a ghost player node ({connected: false}) after we remove ourselves
+      clearPresence();
+
       if (isHost && otherPlayers.length === 0) {
         // Host is the last player - delete the entire room
         await remove(ref(database, `rooms/${roomCode}`));
@@ -318,6 +347,8 @@ export default function LobbyScreen({ route, navigation }) {
                   openSettingsModal();
                 }}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Game settings"
               >
                 <Text style={styles.settingsButtonIcon}>⚙️</Text>
               </TouchableOpacity>
@@ -327,7 +358,12 @@ export default function LobbyScreen({ route, navigation }) {
           {/* Room Code Card */}
           <View style={[styles.codeCard, { backgroundColor: theme.primary }]}>
             {/* Share button in corner */}
-            <TouchableOpacity style={styles.shareCornerButton} onPress={handleShareCode}>
+            <TouchableOpacity
+              style={styles.shareCornerButton}
+              onPress={handleShareCode}
+              accessibilityRole="button"
+              accessibilityLabel="Share room code"
+            >
               <Text style={styles.shareCornerIcon}>📤</Text>
             </TouchableOpacity>
 
@@ -391,7 +427,7 @@ export default function LobbyScreen({ route, navigation }) {
                   index !== players.length - 1 && styles.playerRowBorder,
                 ]}
               >
-                <View style={styles.playerInfo}>
+                <View style={[styles.playerInfo, !player.isOnline && styles.playerOffline]}>
                   <View
                     style={[
                       styles.playerAvatar,
@@ -404,8 +440,15 @@ export default function LobbyScreen({ route, navigation }) {
                   </View>
                   <View style={styles.playerDetails}>
                     <Text style={[styles.playerName, { color: theme.text }]}>{player.name}</Text>
-                    {player.isHost && (
-                      <Text style={[styles.hostLabel, { color: theme.textSecondary }]}>Host</Text>
+                    {(player.isHost || !player.isOnline) && (
+                      <Text
+                        style={[
+                          styles.hostLabel,
+                          { color: !player.isOnline ? theme.warning : theme.textSecondary },
+                        ]}
+                      >
+                        {!player.isOnline ? 'Offline' : 'Host'}
+                      </Text>
                     )}
                   </View>
                 </View>
@@ -421,6 +464,8 @@ export default function LobbyScreen({ route, navigation }) {
                           setShowNameModal(true);
                         }}
                         activeOpacity={0.7}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit your name"
                       >
                         <Text style={[styles.editButtonText, { color: theme.primary }]}>✏️</Text>
                       </TouchableOpacity>
@@ -437,6 +482,8 @@ export default function LobbyScreen({ route, navigation }) {
                         handleKickPlayer(player);
                       }}
                       activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${player.name} from the game`}
                     >
                       <Text style={[styles.kickButtonText, { color: theme.danger }]}>✕</Text>
                     </TouchableOpacity>
@@ -799,6 +846,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+  },
+  playerOffline: {
+    opacity: 0.5,
   },
   playerAvatar: {
     width: 40,

@@ -156,12 +156,9 @@ jest.mock('firebase/database', () => ({
   ref: (...args) => require('./__tests__/__mocks__/firebase').mockRef(...args),
   get: (...args) => require('./__tests__/__mocks__/firebase').mockGet(...args),
   set: (...args) => require('./__tests__/__mocks__/firebase').mockSet(...args),
-  update: (...args) =>
-    require('./__tests__/__mocks__/firebase').mockUpdate(...args),
-  remove: (...args) =>
-    require('./__tests__/__mocks__/firebase').mockRemove(...args),
-  onValue: (...args) =>
-    require('./__tests__/__mocks__/firebase').mockOnValue(...args),
+  update: (...args) => require('./__tests__/__mocks__/firebase').mockUpdate(...args),
+  remove: (...args) => require('./__tests__/__mocks__/firebase').mockRemove(...args),
+  onValue: (...args) => require('./__tests__/__mocks__/firebase').mockOnValue(...args),
   getDatabase: jest.fn(),
 }));
 
@@ -182,9 +179,7 @@ jest.mock('firebase/auth', () => ({
     callback({ uid: 'test-user-123' });
     return jest.fn();
   }),
-  signInAnonymously: jest.fn(() =>
-    Promise.resolve({ user: { uid: 'test-user-123' } })
-  ),
+  signInAnonymously: jest.fn(() => Promise.resolve({ user: { uid: 'test-user-123' } })),
 }));
 
 export default {
@@ -194,4 +189,3 @@ export default {
   getCurrentUserId,
   signInAnonymouslyIfNeeded,
 };
-

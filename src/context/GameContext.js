@@ -28,11 +28,11 @@ export const GameProvider = ({ children }) => {
   };
 
   const addPlayer = (name) => {
-    setPlayers([...players, { name, totalScore: 0 }]);
+    setPlayers((prev) => [...prev, { name, totalScore: 0 }]);
   };
 
   const removePlayer = (index) => {
-    setPlayers(players.filter((_, i) => i !== index));
+    setPlayers((prev) => prev.filter((_, i) => i !== index));
   };
 
   const submitRoundScores = (scores) => {
@@ -53,7 +53,7 @@ export const GameProvider = ({ children }) => {
   };
 
   const nextRound = () => {
-    setCurrentRound(currentRound + 1);
+    setCurrentRound((prev) => prev + 1);
   };
 
   const value = {

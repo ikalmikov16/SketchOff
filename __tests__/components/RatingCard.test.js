@@ -29,8 +29,7 @@ describe('RatingCard', () => {
 
   describe('own drawing detection', () => {
     it('should identify own drawing correctly', () => {
-      const isOwnDrawing = (playerId, currentUserId) =>
-        playerId === currentUserId;
+      const isOwnDrawing = (playerId, currentUserId) => playerId === currentUserId;
 
       expect(isOwnDrawing('user-1', 'user-1')).toBe(true);
       expect(isOwnDrawing('user-1', 'user-2')).toBe(false);
@@ -39,8 +38,7 @@ describe('RatingCard', () => {
 
   describe('rating disabled state', () => {
     it('should not allow rating when disabled', () => {
-      const canRate = ({ disabled, isOwnDrawing }) =>
-        !disabled && !isOwnDrawing;
+      const canRate = ({ disabled, isOwnDrawing }) => !disabled && !isOwnDrawing;
 
       expect(canRate({ disabled: false, isOwnDrawing: false })).toBe(true);
       expect(canRate({ disabled: true, isOwnDrawing: false })).toBe(false);
@@ -76,19 +74,14 @@ describe('RatingCard', () => {
       const getTitle = ({ isOwnDrawing, playerName }) =>
         isOwnDrawing ? 'Your Drawing' : `Rate ${playerName}'s Drawing`;
 
-      expect(getTitle({ isOwnDrawing: true, playerName: 'Alice' })).toBe(
-        'Your Drawing'
-      );
-      expect(getTitle({ isOwnDrawing: false, playerName: 'Alice' })).toBe(
-        "Rate Alice's Drawing"
-      );
+      expect(getTitle({ isOwnDrawing: true, playerName: 'Alice' })).toBe('Your Drawing');
+      expect(getTitle({ isOwnDrawing: false, playerName: 'Alice' })).toBe("Rate Alice's Drawing");
     });
   });
 
   describe('action buttons visibility', () => {
     it('should show action buttons only when drawing exists', () => {
-      const showActionButtons = (drawingUrl) =>
-        Boolean(drawingUrl && drawingUrl.length > 0);
+      const showActionButtons = (drawingUrl) => Boolean(drawingUrl && drawingUrl.length > 0);
 
       expect(showActionButtons('https://example.com/img.png')).toBe(true);
       expect(showActionButtons('')).toBe(false);

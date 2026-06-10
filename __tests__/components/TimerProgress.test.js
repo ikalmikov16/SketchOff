@@ -58,8 +58,7 @@ describe('TimerProgress', () => {
 
   describe('progress calculation', () => {
     it('should calculate progress percentage', () => {
-      const calculateProgress = (seconds, total) =>
-        total > 0 ? seconds / total : 0;
+      const calculateProgress = (seconds, total) => (total > 0 ? seconds / total : 0);
 
       expect(calculateProgress(60, 60)).toBe(1);
       expect(calculateProgress(30, 60)).toBe(0.5);
@@ -67,8 +66,7 @@ describe('TimerProgress', () => {
     });
 
     it('should handle zero total gracefully', () => {
-      const calculateProgress = (seconds, total) =>
-        total > 0 ? seconds / total : 0;
+      const calculateProgress = (seconds, total) => (total > 0 ? seconds / total : 0);
 
       expect(calculateProgress(0, 0)).toBe(0);
     });

@@ -8,7 +8,7 @@ A fun multiplayer drawing game built with React Native and Expo where players sk
 
 ## ✨ Features
 
-- **Real-time Multiplayer** - Create or join rooms with friends using room codes or QR scanning
+- **Real-time Multiplayer** - Create or join rooms with friends using room codes or QR codes (scanned with the device camera)
 - **Cross-Platform** - Play on iOS, Android, or Web (drawing on mobile only)
 - **In-App Drawing** - Draw directly on your device with a full-featured canvas
 - **100+ Drawing Prompts** - Fun and creative topics across multiple categories
@@ -16,7 +16,7 @@ A fun multiplayer drawing game built with React Native and Expo where players sk
 - **Sound Effects & Haptics** - Immersive feedback throughout the game
 - **Offline Single-Device Mode** - Pass-the-phone gameplay when offline
 - **Player Stats** - Track your game history and performance
-- **Dark Mode Support** - Automatic theme based on device settings
+- **Dark Theme** - Polished dark UI throughout
 
 ## 🎮 Game Modes
 
@@ -24,10 +24,10 @@ A fun multiplayer drawing game built with React Native and Expo where players sk
 
 Each player uses their own device:
 
-1. **Create a Room** - Set rounds (1-10) and time limit (10s - 10m)
+1. **Create a Room** - Set rounds (1-10) and time limit (30s - 5m)
 2. **Share the Code** - Send the room code or let friends scan the QR code
 3. **Draw** - Everyone draws the same prompt on their own device
-4. **Rate** - View and rate each other's drawings (1-5 stars)
+4. **Rate** - View and rate each other's drawings (0-10 slider)
 5. **Compete** - See round results and final standings
 
 ### 📱 Single Device Mode
@@ -49,7 +49,7 @@ Perfect for parties or when offline:
 | **Firebase Storage** | Drawing image storage |
 | **Firebase Auth** | Anonymous authentication |
 | **React Navigation 7** | Screen navigation |
-| **React Native Skia** | High-performance drawing canvas |
+| **react-native-signature-canvas** | Drawing canvas (WebView-based) |
 | **Expo Haptics** | Tactile feedback |
 | **Expo Audio** | Sound effects |
 
@@ -57,8 +57,8 @@ Perfect for parties or when offline:
 
 ### Prerequisites
 
-- Node.js 18+ 
-- npm or yarn
+- [Bun](https://bun.sh) (package manager for this repo)
+- Node.js 18+ (required by Expo tooling)
 - [Expo Go](https://expo.dev/client) app on your device (for development)
 - Firebase project with Realtime Database, Storage, and Auth enabled
 
@@ -72,7 +72,7 @@ Perfect for parties or when offline:
 
 2. **Install dependencies**
    ```bash
-   npm install
+   bun install
    ```
 
 3. **Configure Firebase**
@@ -94,7 +94,7 @@ Perfect for parties or when offline:
 
 5. **Start the development server**
    ```bash
-   npm start
+   bun start
    ```
 
 6. **Run on your device**
@@ -114,7 +114,6 @@ sketchoff/
 │   └── sounds/               # Game sound effects
 └── src/
     ├── components/
-    │   ├── DrawingCanvas.js      # Basic drawing canvas
     │   ├── DrawingGallery.js     # Gallery view for drawings
     │   ├── DrawingToolbar.js     # Color/brush selection toolbar
     │   ├── EnhancedDrawingCanvas.js  # Full-featured drawing canvas
@@ -162,18 +161,20 @@ sketchoff/
 
 ## 🔧 Available Scripts
 
+All scripts run through [Bun](https://bun.sh):
+
 | Command | Description |
 |---------|-------------|
-| `npm start` | Start Expo development server |
-| `npm run ios` | Run on iOS simulator |
-| `npm run android` | Run on Android emulator |
-| `npm run web` | Run in web browser |
-| `npm run lint` | Run ESLint |
-| `npm run format` | Format code with Prettier |
-| `npm run format:check` | Check code formatting |
-| `npm test` | Run test suite |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run test:coverage` | Run tests with coverage report |
+| `bun start` | Start Expo development server |
+| `bun run ios` | Run on iOS simulator |
+| `bun run android` | Run on Android emulator |
+| `bun run web` | Run in web browser |
+| `bun run lint` | Run ESLint |
+| `bun run format` | Format code with Prettier |
+| `bun run format:check` | Check code formatting |
+| `bun run test` | Run test suite |
+| `bun run test:watch` | Run tests in watch mode |
+| `bun run test:coverage` | Run tests with coverage report |
 
 ## 🧪 Testing
 
@@ -181,13 +182,13 @@ The project uses Jest with `jest-expo` for testing. Tests are located in the `__
 
 ```bash
 # Run all tests
-npm test
+bun run test
 
 # Run tests in watch mode during development
-npm run test:watch
+bun run test:watch
 
 # Generate coverage report
-npm run test:coverage
+bun run test:coverage
 ```
 
 ### Test Structure
@@ -242,7 +243,7 @@ The game includes 100+ creative prompts organized by category:
 | Rating | ✅ | ✅ | ✅ |
 | Sound Effects | ✅ | ✅ | ✅ |
 | Haptic Feedback | ✅ | ✅ | ❌ |
-| QR Code Scanning | ✅ | ✅ | ❌ |
+| QR Code Display (scan with camera) | ✅ | ✅ | ❌ |
 | Share Results | ✅ | ✅ | ✅ |
 
 > **Note:** Web users can participate by skipping the drawing phase (submitting a placeholder) while still being able to rate and view results.

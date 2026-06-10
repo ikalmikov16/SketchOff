@@ -1,20 +1,50 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { tapLight, tapMedium } from '../utils/haptics';
 import { useNetworkStatus } from '../utils/network';
 import { isSoundMuted, playTap, toggleMute } from '../utils/sounds';
+import { hasSeenHowToPlay, markHowToPlaySeen } from '../utils/storage';
+
+const HOW_TO_PLAY_STEPS = [
+  {
+    emoji: '🏠',
+    title: 'Create or join a room',
+    text: 'Share the 6-letter code or QR with friends',
+  },
+  {
+    emoji: '✏️',
+    title: 'Draw the topic',
+    text: 'Everyone draws the same thing before time runs out',
+  },
+  { emoji: '⭐', title: 'Rate the art', text: "Score each other's masterpieces from 0 to 10" },
+  { emoji: '🏆', title: 'Crown a champion', text: 'Highest total score after all rounds wins' },
+];
 
 export default function WelcomeScreen({ navigation }) {
   const { theme } = useTheme();
   const { isConnected, isChecking } = useNetworkStatus();
   const [isMuted, setIsMuted] = useState(false);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
 
   useEffect(() => {
     // Load initial mute state
     setIsMuted(isSoundMuted());
+
+    // Show the how-to-play guide automatically on first launch
+    hasSeenHowToPlay().then((seen) => {
+      if (!seen) {
+        setShowHowToPlay(true);
+      }
+    });
   }, []);
+
+  const handleCloseHowToPlay = () => {
+    tapLight();
+    setShowHowToPlay(false);
+    markHowToPlaySeen();
+  };
 
   const handleMuteToggle = async () => {
     tapLight();
@@ -41,6 +71,22 @@ export default function WelcomeScreen({ navigation }) {
         <View style={styles.headerContainer}>
           {/* Settings Buttons - Top Right */}
           <View style={styles.settingsRow}>
+            {/* How to Play */}
+            <TouchableOpacity
+              style={[
+                styles.settingsButton,
+                { backgroundColor: theme.cardBackground, borderColor: theme.border },
+              ]}
+              onPress={() => {
+                tapLight();
+                setShowHowToPlay(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="How to play"
+            >
+              <Text style={styles.settingsButtonText}>❓</Text>
+            </TouchableOpacity>
+
             {/* Sound Toggle */}
             <TouchableOpacity
               style={[
@@ -48,6 +94,8 @@ export default function WelcomeScreen({ navigation }) {
                 { backgroundColor: theme.cardBackground, borderColor: theme.border },
               ]}
               onPress={handleMuteToggle}
+              accessibilityRole="button"
+              accessibilityLabel={isMuted ? 'Unmute sounds' : 'Mute sounds'}
             >
               <Text style={styles.settingsButtonText}>{isMuted ? '🔇' : '🔊'}</Text>
             </TouchableOpacity>
@@ -59,6 +107,8 @@ export default function WelcomeScreen({ navigation }) {
                 { backgroundColor: theme.cardBackground, borderColor: theme.border },
               ]}
               onPress={() => handleNavigate('Stats')}
+              accessibilityRole="button"
+              accessibilityLabel="Your stats"
             >
               <Text style={styles.settingsButtonText}>📊</Text>
             </TouchableOpacity>
@@ -171,6 +221,42 @@ export default function WelcomeScreen({ navigation }) {
           </View>
         )}
       </ScrollView>
+
+      {/* How to Play Modal */}
+      <Modal visible={showHowToPlay} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.howToCard, { backgroundColor: theme.cardBackground }]}>
+            <Text style={[styles.howToTitle, { color: theme.text }]}>How to Play</Text>
+
+            {HOW_TO_PLAY_STEPS.map((step, index) => (
+              <View key={index} style={styles.howToStep}>
+                <View style={[styles.howToStepIcon, { backgroundColor: theme.primary + '20' }]}>
+                  <Text style={styles.howToStepEmoji}>{step.emoji}</Text>
+                </View>
+                <View style={styles.howToStepText}>
+                  <Text style={[styles.howToStepTitle, { color: theme.text }]}>{step.title}</Text>
+                  <Text style={[styles.howToStepDesc, { color: theme.textSecondary }]}>
+                    {step.text}
+                  </Text>
+                </View>
+              </View>
+            ))}
+
+            <Text style={[styles.howToFootnote, { color: theme.textSecondary }]}>
+              No second phone? Single Device mode works offline — draw on paper and score together.
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.howToButton, { backgroundColor: theme.primary }]}
+              onPress={handleCloseHowToPlay}
+              accessibilityRole="button"
+              accessibilityLabel="Close how to play"
+            >
+              <Text style={styles.howToButtonText}>Let&apos;s Draw! 🎨</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -340,5 +426,72 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  // How to Play modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  howToCard: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: 24,
+    padding: 28,
+  },
+  howToTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  howToStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  howToStepIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  howToStepEmoji: {
+    fontSize: 22,
+  },
+  howToStepText: {
+    flex: 1,
+  },
+  howToStepTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  howToStepDesc: {
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  howToFootnote: {
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: 4,
+    marginBottom: 20,
+  },
+  howToButton: {
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  howToButtonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '800',
   },
 });
